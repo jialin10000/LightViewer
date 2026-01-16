@@ -395,22 +395,20 @@ struct ContentView: View {
         
         // 尝试多种方式获取 URL
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { [weak self] (item: NSSecureCoding?, error: Error?) in
+            let handleItem = { (item: NSSecureCoding?, error: Error?) in
                 if let error = error {
                     print("❌ 加载 fileURL 失败: \(error)")
                     return
                 }
                 
-                let url: URL? = {
-                    if let data = item as? Data {
-                        return URL(dataRepresentation: data, relativeTo: nil)
-                    } else if let urlItem = item as? URL {
-                        return urlItem
-                    } else if let string = item as? String {
-                        return URL(fileURLWithPath: string)
-                    }
-                    return nil
-                }()
+                var url: URL?
+                if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                } else if let urlItem = item as? URL {
+                    url = urlItem
+                } else if let string = item as? String {
+                    url = URL(fileURLWithPath: string)
+                }
                 
                 guard let finalURL = url else {
                     print("❌ 无法解析 URL")
@@ -420,9 +418,10 @@ struct ContentView: View {
                 print("📍 原始 URL: \(finalURL.path)")
                 
                 DispatchQueue.main.async {
-                    self?.processDroppedURL(finalURL)
+                    self.processDroppedURL(finalURL)
                 }
             }
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil, completionHandler: handleItem)
         }
         
         return true
