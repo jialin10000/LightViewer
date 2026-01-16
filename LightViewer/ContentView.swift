@@ -390,26 +390,37 @@ struct ContentView: View {
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
         
-        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
-            guard let data = item as? Data,
-                  let url = URL(dataRepresentation: data, relativeTo: nil) else {
-                return
-            }
-            
-            DispatchQueue.main.async {
-                // 解析别名和符号链接，获取真实路径
-                let resolvedURL = resolveAlias(url: url)
+        // 打印可用的类型标识符（调试用）
+        print("📂 拖拽类型: \(provider.registeredTypeIdentifiers)")
+        
+        // 尝试多种方式获取 URL
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { [weak self] (item: NSSecureCoding?, error: Error?) in
+                if let error = error {
+                    print("❌ 加载 fileURL 失败: \(error)")
+                    return
+                }
                 
-                var isDirectory: ObjCBool = false
-                FileManager.default.fileExists(atPath: resolvedURL.path, isDirectory: &isDirectory)
+                let url: URL? = {
+                    if let data = item as? Data {
+                        return URL(dataRepresentation: data, relativeTo: nil)
+                    } else if let urlItem = item as? URL {
+                        return urlItem
+                    } else if let string = item as? String {
+                        return URL(fileURLWithPath: string)
+                    }
+                    return nil
+                }()
                 
-                if isDirectory.boolValue {
-                    // 拖入的是文件夹
-                    loadFolder(from: resolvedURL)
-                } else {
-                    // 拖入的是图片文件
-                    loadImage(from: resolvedURL)
-                    loadFolderImages(from: resolvedURL)
+                guard let finalURL = url else {
+                    print("❌ 无法解析 URL")
+                    return
+                }
+                
+                print("📍 原始 URL: \(finalURL.path)")
+                
+                DispatchQueue.main.async {
+                    self?.processDroppedURL(finalURL)
                 }
             }
         }
@@ -417,29 +428,47 @@ struct ContentView: View {
         return true
     }
     
+    // MARK: - 处理拖入的 URL
+    
+    private func processDroppedURL(_ url: URL) {
+        // 解析别名和符号链接，获取真实路径
+        let resolvedURL = resolveAlias(url: url)
+        print("📍 解析后 URL: \(resolvedURL.path)")
+        
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: resolvedURL.path, isDirectory: &isDirectory)
+        print("📍 文件存在: \(exists), 是目录: \(isDirectory.boolValue)")
+        
+        if exists {
+            if isDirectory.boolValue {
+                loadFolder(from: resolvedURL)
+            } else {
+                loadImage(from: resolvedURL)
+                loadFolderImages(from: resolvedURL)
+            }
+        } else {
+            print("❌ 文件/文件夹不存在: \(resolvedURL.path)")
+        }
+    }
+    
     // MARK: - 解析别名和符号链接
     
     private func resolveAlias(url: URL) -> URL {
+        let symlinkResolved = (url.path as NSString).resolvingSymlinksInPath
+        let workingURL = URL(fileURLWithPath: symlinkResolved)
+        
         do {
-            // 尝试解析别名（Finder Alias）
-            let resourceValues = try url.resourceValues(forKeys: [.isAliasFileKey])
+            let resourceValues = try workingURL.resourceValues(forKeys: [.isAliasFileKey])
             if resourceValues.isAliasFile == true {
-                let resolvedURL = try URL(resolvingAliasFileAt: url, options: [])
-                return resolvedURL
+                let options: URL.BookmarkResolutionOptions = [.withoutUI, .withoutMounting]
+                let resolved = try URL(resolvingAliasFileAt: workingURL, options: options)
+                return resolved
             }
         } catch {
-            // 如果解析失败，尝试解析符号链接
-            let resolvedPath = (url.path as NSString).resolvingSymlinksInPath
-            return URL(fileURLWithPath: resolvedPath)
+            print("⚠️ 别名解析错误: \(error)")
         }
         
-        // 尝试解析符号链接
-        let resolvedPath = (url.path as NSString).resolvingSymlinksInPath
-        if resolvedPath != url.path {
-            return URL(fileURLWithPath: resolvedPath)
-        }
-        
-        return url
+        return workingURL
     }
     
     // MARK: - 打开文件夹对话框
