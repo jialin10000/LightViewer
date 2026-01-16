@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var viewMode: ViewMode = .single
     @State private var isFullscreen: Bool = false
     @State private var currentFolderURL: URL?
+    @State private var showExifInFullscreen: Bool = true
     
     var body: some View {
         ZStack {
@@ -31,7 +32,26 @@ struct ContentView: View {
             Color.darkBackground
                 .ignoresSafeArea()
             
-            if viewMode == .single {
+            if isFullscreen && currentImage != nil {
+                // 全屏模式
+                FullscreenView(
+                    image: currentImage!,
+                    metadata: metadata,
+                    imageURL: currentImageURL,
+                    currentIndex: currentIndex,
+                    totalCount: folderImages.count,
+                    showExif: $showExifInFullscreen,
+                    onNavigate: { direction in
+                        navigateImage(direction: direction)
+                    },
+                    onExit: {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            isFullscreen = false
+                        }
+                    }
+                )
+                .transition(.opacity)
+            } else if viewMode == .single {
                 // 单图查看模式
                 singleImageView
             } else {
@@ -40,8 +60,11 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 600)
+        .toolbar(isFullscreen ? .hidden : .automatic)
         .toolbar {
-            toolbarContent
+            if !isFullscreen {
+                toolbarContent
+            }
         }
         .onAppear {
             setupKeyboardShortcuts()
@@ -49,11 +72,30 @@ struct ContentView: View {
         .background(KeyboardEventHandler(
             onLeftArrow: { navigateImage(direction: -1) },
             onRightArrow: { navigateImage(direction: 1) },
-            onToggleExif: { withAnimation(.easeInOut(duration: 0.2)) { showExif.toggle() } },
-            onToggleThumbnails: { withAnimation(.easeInOut(duration: 0.3)) { toggleViewMode() } },
+            onToggleExif: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if isFullscreen {
+                        showExifInFullscreen.toggle()
+                    } else {
+                        showExif.toggle()
+                    }
+                }
+            },
+            onToggleThumbnails: {
+                if !isFullscreen {
+                    withAnimation(.easeInOut(duration: 0.3)) { toggleViewMode() }
+                }
+            },
             onToggleFullscreen: { toggleFullscreen() },
             onOpenFolder: { openFolderDialog() },
-            onDelete: { deleteCurrentImage() }
+            onDelete: { deleteCurrentImage() },
+            onEscape: {
+                if isFullscreen {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isFullscreen = false
+                    }
+                }
+            }
         ))
     }
     
@@ -66,7 +108,9 @@ struct ContentView: View {
                 Color.darkBackground
                 
                 if let image = currentImage {
-                    ImageViewer(image: image)
+                    ImageViewer(image: image) { direction in
+                        navigateImage(direction: direction)
+                    }
                 } else {
                     // 拖拽提示
                     emptyStateView
@@ -258,6 +302,12 @@ struct ContentView: View {
             
             Divider()
             
+            Button(action: { toggleFullscreen() }) {
+                Label("全屏", systemImage: "arrow.up.left.and.arrow.down.right")
+            }
+            .disabled(currentImage == nil)
+            .help("全屏查看 (F)")
+            
             Button(action: { withAnimation { showExif.toggle() } }) {
                 Label("信息", systemImage: showExif ? "info.circle.fill" : "info.circle")
             }
@@ -417,8 +467,19 @@ struct ContentView: View {
     // MARK: - 全屏切换
     
     private func toggleFullscreen() {
+        guard currentImage != nil else { return }
+        
+        withAnimation(.easeOut(duration: 0.3)) {
+            isFullscreen.toggle()
+        }
+        
+        // 同时切换系统全屏
         if let window = NSApplication.shared.mainWindow {
-            window.toggleFullScreen(nil)
+            if isFullscreen && !window.styleMask.contains(.fullScreen) {
+                window.toggleFullScreen(nil)
+            } else if !isFullscreen && window.styleMask.contains(.fullScreen) {
+                window.toggleFullScreen(nil)
+            }
         }
     }
     
@@ -488,6 +549,7 @@ struct KeyboardEventHandler: NSViewRepresentable {
     var onToggleFullscreen: () -> Void
     var onOpenFolder: () -> Void
     var onDelete: () -> Void
+    var onEscape: () -> Void
     
     func makeNSView(context: Context) -> KeyboardView {
         let view = KeyboardView()
@@ -498,6 +560,7 @@ struct KeyboardEventHandler: NSViewRepresentable {
         view.onToggleFullscreen = onToggleFullscreen
         view.onOpenFolder = onOpenFolder
         view.onDelete = onDelete
+        view.onEscape = onEscape
         return view
     }
     
@@ -509,6 +572,7 @@ struct KeyboardEventHandler: NSViewRepresentable {
         nsView.onToggleFullscreen = onToggleFullscreen
         nsView.onOpenFolder = onOpenFolder
         nsView.onDelete = onDelete
+        nsView.onEscape = onEscape
     }
 }
 
@@ -520,6 +584,7 @@ class KeyboardView: NSView {
     var onToggleFullscreen: (() -> Void)?
     var onOpenFolder: (() -> Void)?
     var onDelete: (() -> Void)?
+    var onEscape: (() -> Void)?
     
     override var acceptsFirstResponder: Bool { true }
     
@@ -546,6 +611,8 @@ class KeyboardView: NSView {
             onDelete?()
         case 2: // D 键
             onDelete?()
+        case 53: // Escape 键
+            onEscape?()
         default:
             super.keyDown(with: event)
         }
