@@ -198,9 +198,10 @@ struct ContentView: View {
                 }
             }
             .frame(minWidth: 500, minHeight: 400)
-            .onDrop(of: [.fileURL, .url, .item], isTargeted: $isDragging) { providers in
-                handleDrop(providers: providers)
-            }
+            .onDrop(of: [.fileURL, .url, .item, .data], isTargeted: $isDragging, perform: { providers in
+                print("🎯 onDrop 触发！providers 数量: \(providers.count)")
+                return handleDrop(providers: providers)
+            })
             
             // 右侧：EXIF 信息面板
             if showExif {
@@ -269,9 +270,10 @@ struct ContentView: View {
                 )
             }
         }
-        .onDrop(of: [.fileURL, .url, .item], isTargeted: $isDragging) { providers in
-            handleDrop(providers: providers)
-        }
+        .onDrop(of: [.fileURL, .url, .item, .data], isTargeted: $isDragging, perform: { providers in
+            print("🎯 onDrop 触发！providers 数量: \(providers.count)")
+            return handleDrop(providers: providers)
+        })
     }
     
     // MARK: - 空状态视图
