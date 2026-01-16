@@ -2,7 +2,7 @@
 //  ExifPanel.swift
 //  LightViewer
 //
-//  EXIF 信息显示面板
+//  EXIF 信息显示面板 - 优化后的深色主题
 //
 
 import SwiftUI
@@ -13,10 +13,10 @@ struct ExifPanel: View {
     
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 20) {
                 // 文件信息
                 if let url = imageURL {
-                    SectionView(title: "文件") {
+                    InfoSection(title: "文件", icon: "doc.fill") {
                         InfoRow(label: "文件名", value: url.lastPathComponent)
                         
                         if let size = metadata?.fileSizeFormatted {
@@ -31,7 +31,7 @@ struct ExifPanel: View {
                 
                 // 相机信息
                 if metadata?.cameraModel != nil || metadata?.cameraMake != nil {
-                    SectionView(title: "相机") {
+                    InfoSection(title: "相机", icon: "camera.fill") {
                         if let make = metadata?.cameraMake {
                             InfoRow(label: "品牌", value: make)
                         }
@@ -44,7 +44,7 @@ struct ExifPanel: View {
                 
                 // 镜头信息
                 if metadata?.lensModel != nil {
-                    SectionView(title: "镜头") {
+                    InfoSection(title: "镜头", icon: "camera.aperture") {
                         if let lens = metadata?.lensModel {
                             InfoRow(label: "型号", value: lens)
                         }
@@ -53,7 +53,7 @@ struct ExifPanel: View {
                 
                 // 拍摄参数
                 if hasShootingParams {
-                    SectionView(title: "拍摄参数") {
+                    InfoSection(title: "拍摄参数", icon: "slider.horizontal.3") {
                         if let focal = metadata?.focalLengthFormatted {
                             InfoRow(label: "焦距", value: focal)
                         }
@@ -78,7 +78,7 @@ struct ExifPanel: View {
                 
                 // 时间信息
                 if metadata?.dateFormatted != nil {
-                    SectionView(title: "时间") {
+                    InfoSection(title: "时间", icon: "clock.fill") {
                         if let date = metadata?.dateFormatted {
                             InfoRow(label: "拍摄时间", value: date)
                         }
@@ -87,7 +87,7 @@ struct ExifPanel: View {
                 
                 // GPS 信息
                 if metadata?.hasGPS == true {
-                    SectionView(title: "位置") {
+                    InfoSection(title: "位置", icon: "location.fill") {
                         if let gps = metadata?.gpsFormatted {
                             InfoRow(label: "GPS", value: gps)
                         }
@@ -100,24 +100,30 @@ struct ExifPanel: View {
                 
                 // 无 EXIF 数据提示
                 if metadata == nil && imageURL != nil {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 12) {
                         Image(systemName: "info.circle")
-                            .font(.title2)
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 32, weight: .thin))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.secondary, .secondary.opacity(0.5)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
                         
                         Text("无 EXIF 数据")
-                            .font(.caption)
+                            .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 32)
+                    .padding(.vertical, 40)
                 }
                 
                 Spacer()
             }
-            .padding()
+            .padding(20)
         }
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(Color.darkSidebar)
     }
     
     private var hasShootingParams: Bool {
@@ -128,39 +134,57 @@ struct ExifPanel: View {
     }
 }
 
-// MARK: - 子视图
+// MARK: - 信息区块
 
-struct SectionView<Content: View>: View {
+struct InfoSection<Content: View>: View {
     let title: String
+    let icon: String
     @ViewBuilder let content: Content
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-                .foregroundColor(.primary)
+        VStack(alignment: .leading, spacing: 12) {
+            // 标题行
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.caption)
+                    .foregroundColor(.accentColor)
+                
+                Text(title)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .textCase(.uppercase)
+                    .tracking(1)
+            }
             
-            VStack(alignment: .leading, spacing: 4) {
+            // 内容
+            VStack(alignment: .leading, spacing: 8) {
                 content
             }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.darkCard)
+            .cornerRadius(10)
         }
-        .padding(.bottom, 4)
     }
 }
+
+// MARK: - 信息行
 
 struct InfoRow: View {
     let label: String
     let value: String
     
     var body: some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .top, spacing: 12) {
             Text(label)
                 .font(.caption)
                 .foregroundColor(.secondary)
-                .frame(width: 70, alignment: .leading)
+                .frame(width: 65, alignment: .leading)
             
             Text(value)
-                .font(.caption)
+                .font(.callout)
+                .fontWeight(.medium)
                 .foregroundColor(.primary)
                 .textSelection(.enabled)
             
@@ -192,5 +216,6 @@ struct InfoRow: View {
         ),
         imageURL: URL(fileURLWithPath: "/test/DSC00001.ARW")
     )
-    .frame(width: 280, height: 600)
+    .frame(width: 300, height: 700)
+    .preferredColorScheme(.dark)
 }
