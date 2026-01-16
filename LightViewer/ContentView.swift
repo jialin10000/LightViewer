@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  LightViewer
 //
-//  主界面：支持单图查看和缩略图网格模式
+//  主界面：支持单图查看、缩略图网格、全屏和幻灯片模式
 //
 
 import SwiftUI
@@ -26,13 +26,42 @@ struct ContentView: View {
     @State private var currentFolderURL: URL?
     @State private var showExifInFullscreen: Bool = true
     
+    // 幻灯片状态
+    @State private var isSlideshow: Bool = false
+    @State private var isSlideshowPlaying: Bool = true
+    @State private var slideshowInterval: Double = 3.0
+    
     var body: some View {
         ZStack {
             // 背景色
             Color.darkBackground
                 .ignoresSafeArea()
             
-            if isFullscreen && currentImage != nil {
+            if isSlideshow && !folderImages.isEmpty {
+                // 幻灯片模式
+                SlideshowView(
+                    images: folderImages,
+                    currentIndex: $currentIndex,
+                    isPlaying: $isSlideshowPlaying,
+                    interval: $slideshowInterval,
+                    onLoadImage: { url in
+                        let image = NSImage(contentsOf: url)
+                        let meta = ExifParser.parse(from: url)
+                        return (image, meta)
+                    },
+                    onExit: {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            isSlideshow = false
+                            // 同步当前图片
+                            if folderImages.indices.contains(currentIndex) {
+                                loadImage(from: folderImages[currentIndex])
+                            }
+                        }
+                        exitSystemFullscreen()
+                    }
+                )
+                .transition(.opacity)
+            } else if isFullscreen && currentImage != nil {
                 // 全屏模式
                 FullscreenView(
                     image: currentImage!,
@@ -60,9 +89,9 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 600)
-        .toolbar(isFullscreen ? .hidden : .automatic)
+        .toolbar((isFullscreen || isSlideshow) ? .hidden : .automatic)
         .toolbar {
-            if !isFullscreen {
+            if !isFullscreen && !isSlideshow {
                 toolbarContent
             }
         }
@@ -70,8 +99,16 @@ struct ContentView: View {
             setupKeyboardShortcuts()
         }
         .background(KeyboardEventHandler(
-            onLeftArrow: { navigateImage(direction: -1) },
-            onRightArrow: { navigateImage(direction: 1) },
+            onLeftArrow: { 
+                if !isSlideshow {
+                    navigateImage(direction: -1)
+                }
+            },
+            onRightArrow: { 
+                if !isSlideshow {
+                    navigateImage(direction: 1)
+                }
+            },
             onToggleExif: {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     if isFullscreen {
@@ -82,7 +119,7 @@ struct ContentView: View {
                 }
             },
             onToggleThumbnails: {
-                if !isFullscreen {
+                if !isFullscreen && !isSlideshow {
                     withAnimation(.easeInOut(duration: 0.3)) { toggleViewMode() }
                 }
             },
@@ -90,10 +127,28 @@ struct ContentView: View {
             onOpenFolder: { openFolderDialog() },
             onDelete: { deleteCurrentImage() },
             onEscape: {
-                if isFullscreen {
+                if isSlideshow {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isSlideshow = false
+                        if folderImages.indices.contains(currentIndex) {
+                            loadImage(from: folderImages[currentIndex])
+                        }
+                    }
+                    exitSystemFullscreen()
+                } else if isFullscreen {
                     withAnimation(.easeOut(duration: 0.3)) {
                         isFullscreen = false
                     }
+                }
+            },
+            onToggleSlideshow: {
+                startSlideshow()
+            },
+            onSpace: {
+                if isSlideshow {
+                    isSlideshowPlaying.toggle()
+                } else {
+                    startSlideshow()
                 }
             }
         ))
@@ -175,6 +230,13 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                     
                     Spacer()
+                    
+                    // 幻灯片按钮
+                    Button(action: { startSlideshow() }) {
+                        Label("幻灯片", systemImage: "play.rectangle")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(folderImages.isEmpty)
                     
                     Button(action: { openFolderDialog() }) {
                         Label("更换文件夹", systemImage: "folder.badge.plus")
@@ -258,6 +320,7 @@ struct ContentView: View {
                     KeyHint(key: "I", action: "显示信息")
                     KeyHint(key: "T", action: "缩略图")
                     KeyHint(key: "F", action: "全屏")
+                    KeyHint(key: "P", action: "幻灯片")
                 }
             }
             .padding(.top, 20)
@@ -301,6 +364,13 @@ struct ContentView: View {
             .help("切换视图模式 (T)")
             
             Divider()
+            
+            // 幻灯片按钮
+            Button(action: { startSlideshow() }) {
+                Label("幻灯片", systemImage: "play.rectangle")
+            }
+            .disabled(folderImages.isEmpty)
+            .help("开始幻灯片 (P 或 空格)")
             
             Button(action: { toggleFullscreen() }) {
                 Label("全屏", systemImage: "arrow.up.left.and.arrow.down.right")
@@ -483,6 +553,38 @@ struct ContentView: View {
         }
     }
     
+    // MARK: - 幻灯片
+    
+    private func startSlideshow() {
+        guard !folderImages.isEmpty else { return }
+        
+        // 如果没有选中具体图片，从第一张开始
+        if currentImage == nil {
+            currentIndex = 0
+        }
+        
+        isSlideshowPlaying = true
+        
+        withAnimation(.easeOut(duration: 0.3)) {
+            isSlideshow = true
+        }
+        
+        // 进入系统全屏
+        if let window = NSApplication.shared.mainWindow {
+            if !window.styleMask.contains(.fullScreen) {
+                window.toggleFullScreen(nil)
+            }
+        }
+    }
+    
+    private func exitSystemFullscreen() {
+        if let window = NSApplication.shared.mainWindow {
+            if window.styleMask.contains(.fullScreen) {
+                window.toggleFullScreen(nil)
+            }
+        }
+    }
+    
     // MARK: - 删除当前图片
     
     private func deleteCurrentImage() {
@@ -550,6 +652,8 @@ struct KeyboardEventHandler: NSViewRepresentable {
     var onOpenFolder: () -> Void
     var onDelete: () -> Void
     var onEscape: () -> Void
+    var onToggleSlideshow: () -> Void
+    var onSpace: () -> Void
     
     func makeNSView(context: Context) -> KeyboardView {
         let view = KeyboardView()
@@ -561,6 +665,8 @@ struct KeyboardEventHandler: NSViewRepresentable {
         view.onOpenFolder = onOpenFolder
         view.onDelete = onDelete
         view.onEscape = onEscape
+        view.onToggleSlideshow = onToggleSlideshow
+        view.onSpace = onSpace
         return view
     }
     
@@ -573,6 +679,8 @@ struct KeyboardEventHandler: NSViewRepresentable {
         nsView.onOpenFolder = onOpenFolder
         nsView.onDelete = onDelete
         nsView.onEscape = onEscape
+        nsView.onToggleSlideshow = onToggleSlideshow
+        nsView.onSpace = onSpace
     }
 }
 
@@ -585,6 +693,8 @@ class KeyboardView: NSView {
     var onOpenFolder: (() -> Void)?
     var onDelete: (() -> Void)?
     var onEscape: (() -> Void)?
+    var onToggleSlideshow: (() -> Void)?
+    var onSpace: (() -> Void)?
     
     override var acceptsFirstResponder: Bool { true }
     
@@ -613,6 +723,10 @@ class KeyboardView: NSView {
             onDelete?()
         case 53: // Escape 键
             onEscape?()
+        case 35: // P 键
+            onToggleSlideshow?()
+        case 49: // 空格键
+            onSpace?()
         default:
             super.keyDown(with: event)
         }
