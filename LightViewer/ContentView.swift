@@ -397,21 +397,49 @@ struct ContentView: View {
             }
             
             DispatchQueue.main.async {
+                // 解析别名和符号链接，获取真实路径
+                let resolvedURL = resolveAlias(url: url)
+                
                 var isDirectory: ObjCBool = false
-                FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+                FileManager.default.fileExists(atPath: resolvedURL.path, isDirectory: &isDirectory)
                 
                 if isDirectory.boolValue {
                     // 拖入的是文件夹
-                    loadFolder(from: url)
+                    loadFolder(from: resolvedURL)
                 } else {
                     // 拖入的是图片文件
-                    loadImage(from: url)
-                    loadFolderImages(from: url)
+                    loadImage(from: resolvedURL)
+                    loadFolderImages(from: resolvedURL)
                 }
             }
         }
         
         return true
+    }
+    
+    // MARK: - 解析别名和符号链接
+    
+    private func resolveAlias(url: URL) -> URL {
+        do {
+            // 尝试解析别名（Finder Alias）
+            let resourceValues = try url.resourceValues(forKeys: [.isAliasFileKey])
+            if resourceValues.isAliasFile == true {
+                let resolvedURL = try URL(resolvingAliasFileAt: url, options: [])
+                return resolvedURL
+            }
+        } catch {
+            // 如果解析失败，尝试解析符号链接
+            let resolvedPath = (url.path as NSString).resolvingSymlinksInPath
+            return URL(fileURLWithPath: resolvedPath)
+        }
+        
+        // 尝试解析符号链接
+        let resolvedPath = (url.path as NSString).resolvingSymlinksInPath
+        if resolvedPath != url.path {
+            return URL(fileURLWithPath: resolvedPath)
+        }
+        
+        return url
     }
     
     // MARK: - 打开文件夹对话框
