@@ -198,7 +198,7 @@ struct ContentView: View {
                 }
             }
             .frame(minWidth: 500, minHeight: 400)
-            .onDrop(of: [.fileURL], isTargeted: $isDragging) { providers in
+            .onDrop(of: [.fileURL, .url, .item], isTargeted: $isDragging) { providers in
                 handleDrop(providers: providers)
             }
             
@@ -269,7 +269,7 @@ struct ContentView: View {
                 )
             }
         }
-        .onDrop(of: [.fileURL], isTargeted: $isDragging) { providers in
+        .onDrop(of: [.fileURL, .url, .item], isTargeted: $isDragging) { providers in
             handleDrop(providers: providers)
         }
     }
@@ -393,38 +393,78 @@ struct ContentView: View {
         // 打印可用的类型标识符（调试用）
         print("📂 拖拽类型: \(provider.registeredTypeIdentifiers)")
         
-        // 尝试多种方式获取 URL
-        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            let handleItem = { (item: NSSecureCoding?, error: Error?) in
-                if let error = error {
-                    print("❌ 加载 fileURL 失败: \(error)")
-                    return
-                }
-                
-                var url: URL?
-                if let data = item as? Data {
-                    url = URL(dataRepresentation: data, relativeTo: nil)
-                } else if let urlItem = item as? URL {
-                    url = urlItem
-                } else if let string = item as? String {
-                    url = URL(fileURLWithPath: string)
-                }
-                
-                guard let finalURL = url else {
-                    print("❌ 无法解析 URL")
-                    return
-                }
-                
-                print("📍 原始 URL: \(finalURL.path)")
-                
+        // 按优先级尝试不同类型
+        let typeIdentifiers = [
+            UTType.fileURL.identifier,
+            "public.file-url",
+            UTType.url.identifier,
+            "public.url"
+        ]
+        
+        for typeId in typeIdentifiers {
+            if provider.hasItemConformingToTypeIdentifier(typeId) {
+                print("📂 尝试类型: \(typeId)")
+                loadDroppedItem(from: provider, typeIdentifier: typeId)
+                return true
+            }
+        }
+        
+        // 如果都没有，尝试通用方式
+        print("📂 尝试通用方式加载")
+        provider.loadObject(ofClass: URL.self) { url, error in
+            if let error = error {
+                print("❌ 通用加载失败: \(error)")
+                return
+            }
+            if let url = url {
+                print("📍 通用方式获取 URL: \(url)")
                 DispatchQueue.main.async {
-                    self.processDroppedURL(finalURL)
+                    self.processDroppedURL(url)
                 }
             }
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil, completionHandler: handleItem)
         }
         
         return true
+    }
+    
+    private func loadDroppedItem(from provider: NSItemProvider, typeIdentifier: String) {
+        provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, error in
+            if let error = error {
+                print("❌ 加载失败 (\(typeIdentifier)): \(error)")
+                return
+            }
+            
+            print("📂 获取到 item 类型: \(type(of: item))")
+            
+            var url: URL?
+            if let data = item as? Data {
+                url = URL(dataRepresentation: data, relativeTo: nil)
+                if url == nil, let string = String(data: data, encoding: .utf8) {
+                    url = URL(fileURLWithPath: string)
+                }
+            } else if let urlItem = item as? URL {
+                url = urlItem
+            } else if let string = item as? String {
+                if string.hasPrefix("/") {
+                    url = URL(fileURLWithPath: string)
+                } else if string.hasPrefix("file://") {
+                    url = URL(string: string)
+                }
+            } else if let nsURL = item as? NSURL {
+                url = nsURL as URL
+            }
+            
+            guard let finalURL = url else {
+                print("❌ 无法解析 URL，item: \(String(describing: item))")
+                return
+            }
+            
+            print("📍 原始 URL: \(finalURL)")
+            
+            DispatchQueue.main.async {
+                self.processDroppedURL(finalURL)
+            }
+        }
     }
     
     // MARK: - 处理拖入的 URL
